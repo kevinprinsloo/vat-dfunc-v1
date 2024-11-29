@@ -186,7 +186,7 @@ def process_pdf(inputData: dict) -> dict:
 
 
 def save_results_to_blob(blob_name: str, result: dict):
-    """Saves the result of processing to Azure Blob Storage asynchronously."""
+    """Saves the result of processing to Azure Blob Storage asynchronously"""
     try:
         # Initialize BlobServiceClient
         blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
