@@ -261,7 +261,7 @@ def render_pdf_to_images(pdf_bytes: bytes, pdf_name: str) -> Optional[List[Dict[
 
 
 def resize_image(image: Image.Image, max_dimension: int = 2048, min_dimension: int = 768) -> Image.Image:
-    """Resizes an image while maintaining aspect ratio."""
+    """Resizes an image while maintaining aspect ratio"""
     try:
         width, height = image.size
         logging.debug(f"Original image size: {width}x{height}")
