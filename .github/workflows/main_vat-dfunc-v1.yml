@@ -1,7 +1,3 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-# More info on Python, GitHub Actions, and Azure Functions: https://aka.ms/python-webapps-actions
-
 name: Build and deploy Python project to Azure Function App - vat-dfunc-v1
 
 on:
@@ -12,7 +8,7 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
-  PYTHON_VERSION: '3.10' # set this to the python version to use (supports 3.6, 3.7, 3.8)
+  PYTHON_VERSION: '3.10' # set this to the python version to use (supports 3.6, 3.7, 3.8, 3.10)
 
 jobs:
   build:
@@ -50,8 +46,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    __environment__
-    
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
@@ -60,7 +54,7 @@ jobs:
 
       - name: Unzip artifact for deployment
         run: unzip release.zip     
-        
+
       - name: 'Deploy to Azure Functions'
         uses: Azure/functions-action@v1
         id: deploy-to-function
