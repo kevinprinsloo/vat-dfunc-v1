@@ -8,8 +8,10 @@ from io import BytesIO
 import fitz  # PyMuPDF for PDF rendering
 from openai import AzureOpenAI
 import json
+from azure.core.exceptions import HttpResponseError
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
+from azure.storage.queue import QueueServiceClient
 import asyncio
 from typing import Optional, List, Dict
 
@@ -82,43 +84,30 @@ def blob_trigger_input(myblob: func.InputStream):
         logging.warning("Skipping non-PDF blob.")
         return
 
-    pdf_content = myblob.read()
+    # Extract only the blob name
+    blob_name = os.path.basename(myblob.name)
+
     enqueue_message(
         queue_name="orchestrationqueue",
-        message={"name": myblob.name, "content": base64.b64encode(pdf_content).decode()},
+        message={"name": blob_name},
         connection_string=AZURE_STORAGE_CONNECTION_STRING
     )
 
 def enqueue_message(queue_name: str, message: dict, connection_string: str):
-    """Enqueue a message to the specified Azure Storage Queue."""
-    from azure.storage.queue import QueueServiceClient
-    from azure.core.exceptions import ResourceExistsError
-
     try:
         queue_service = QueueServiceClient.from_connection_string(connection_string)
         queue_client = queue_service.get_queue_client(queue_name)
-        try:
-            queue_client.create_queue()
-            logging.info(f"Created queue '{queue_name}'.")
-        except ResourceExistsError:
-            logging.info(f"Queue '{queue_name}' already exists.")
-        except Exception as e:
-            logging.error(f"Failed to create queue '{queue_name}': {e}")
-            return
 
-        # Serialize the message to JSON and base64 encode it
         json_message = json.dumps(message)
-        encoded_message = base64.b64encode(json_message.encode("utf-8")).decode("utf-8")
+        # Base64 encode the message
+        encoded_message = base64.b64encode(json_message.encode('utf-8')).decode('utf-8')
 
-        # Split the message if it exceeds the maximum permissible limit
-        max_chunk_size = 65536  # 64 KB
-        for i in range(0, len(encoded_message), max_chunk_size):
-            chunk = encoded_message[i:i + max_chunk_size]
-            queue_client.send_message(chunk)
-
+        queue_client.send_message(encoded_message)
         logging.info(f"Enqueued message to queue '{queue_name}': {message}")
     except Exception as e:
         logging.error(f"Failed to enqueue message: {e}")
+
+
 
 
 # Durable Function orchestrator
@@ -142,7 +131,6 @@ def hello_orchestrator(context: df.DurableOrchestrationContext):
 @app.queue_trigger(arg_name="message", queue_name="orchestrationqueue", connection="AZURE_STORAGE_CONNECTION_STRING")
 @app.durable_client_input(client_name="client")
 async def start_orchestrator(message: func.QueueMessage, client):
-    """Starts the orchestrator function when a message is received."""
     logging.info(f"Received queue message: {message.id}")
 
     try:
@@ -155,20 +143,23 @@ async def start_orchestrator(message: func.QueueMessage, client):
         logging.error(f"Failed to start orchestration: {e}", exc_info=True)
 
 
+
 # Activity Function
 @app.function_name(name="process_pdf")
 @app.activity_trigger(input_name="inputData")
 def process_pdf(inputData: dict) -> dict:
-    """Processes the PDF by rendering images and invoking GPT-4."""
     pdf_name = inputData.get("name")
     logging.info(f"Processing PDF: {pdf_name}")
 
     try:
-        pdf_content_base64 = inputData.get("content")
-        if not pdf_content_base64:
-            raise ValueError("PDF content is missing.")
+        # Initialize BlobServiceClient
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+        container_name = "blobtriggerinput"  # The container where the PDFs are stored
+        
+        # Use the pdf_name directly as the blob name
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=pdf_name)
+        pdf_content = blob_client.download_blob().readall()
 
-        pdf_content = base64.b64decode(pdf_content_base64)
         images = render_pdf_to_images(pdf_content, pdf_name)
 
         if not images:
@@ -182,12 +173,13 @@ def process_pdf(inputData: dict) -> dict:
 
         final_result = {"status": "success", "results": results}
     except Exception as e:
-        logging.error(f"Error processing PDF '{pdf_name}': {e}")
+        logging.error(f"Error processing PDF '{pdf_name}': {e}", exc_info=True)
         final_result = {"status": "error", "reason": str(e)}
     finally:
         save_results_to_blob(pdf_name, final_result)
 
     return final_result
+
 
 
 def save_results_to_blob(blob_name: str, result: dict):
