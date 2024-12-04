@@ -109,7 +109,12 @@ def enqueue_message(queue_name: str, message: dict, connection_string: str):
         # Serialize the message to JSON and base64 encode it
         json_message = json.dumps(message)
         encoded_message = base64.b64encode(json_message.encode("utf-8")).decode("utf-8")
-        queue_client.send_message(encoded_message)
+
+        # Split the message if it exceeds the maximum permissible limit
+        max_chunk_size = 65536  # 64 KB
+        for i in range(0, len(encoded_message), max_chunk_size):
+            chunk = encoded_message[i:i + max_chunk_size]
+            queue_client.send_message(chunk)
 
         logging.info(f"Enqueued message to queue '{queue_name}': {message}")
     except Exception as e:
